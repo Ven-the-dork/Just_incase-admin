@@ -23,14 +23,22 @@ function calculateWorkingDays(startDate, endDate) {
   return count;
 }
 
-export default function RecallModal({ leave, onClose, onConfirm, isSubmitting }) {
-  const [resumptionDate, setResumptionDate] = useState("");
-  const [reason, setReason] = useState("");
+export default function RecallModal({
+  open,
+  leave,
+  submitting,
+  newDate,
+  reason,
+  onChangeDate,
+  onChangeReason,
+  onSubmit,
+  onClose,
+}) {
   const [calculation, setCalculation] = useState(null);
 
-  // Calculate days when resumption date changes
+  // ✅ NEW: Calculate days when resumption date changes
   useEffect(() => {
-    if (!resumptionDate || !leave) {
+    if (!newDate || !leave) {
       setCalculation(null);
       return;
     }
@@ -39,7 +47,7 @@ export default function RecallModal({ leave, onClose, onConfirm, isSubmitting })
     const endDate = leave.end_date;
 
     // Calculate last day of leave (day before resumption)
-    const resumeDate = new Date(resumptionDate);
+    const resumeDate = new Date(newDate);
     const lastLeaveDate = new Date(resumeDate);
     lastLeaveDate.setDate(lastLeaveDate.getDate() - 1);
     const lastLeaveDateStr = lastLeaveDate.toISOString().split('T')[0];
@@ -48,176 +56,165 @@ export default function RecallModal({ leave, onClose, onConfirm, isSubmitting })
     const daysUsed = calculateWorkingDays(startDate, lastLeaveDateStr);
     
     // Days to refund (resumption date to original end date)
-    const daysToRefund = calculateWorkingDays(resumptionDate, endDate);
+    const daysToRefund = calculateWorkingDays(newDate, endDate);
+
+    console.log("📊 Recall Calculation:", {
+      originalPeriod: `${startDate} to ${endDate}`,
+      newResumptionDate: newDate,
+      daysUsed,
+      daysToRefund
+    });
 
     setCalculation({
       daysUsed,
       daysToRefund,
       originalTotal: leave.duration_days,
     });
-  }, [resumptionDate, leave]);
+  }, [newDate, leave]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onConfirm(resumptionDate, reason);
-  };
-
-  const canSubmit = resumptionDate && reason.trim() && !isSubmitting;
+  if (!open || !leave) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg p-6">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+        <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Calendar className="text-orange-600" size={24} />
-              Recall Leave
+            <h2 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+              <Calendar className="text-orange-600" size={20} />
+              Confirm Recall
             </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Employee will be notified and unused days will be refunded
+            <p className="text-sm text-gray-500">
+              Request{" "}
+              <span className="font-bold text-gray-800">
+                {leave.employees?.full_name}
+              </span>{" "}
+              to return early.
             </p>
           </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
-            disabled={isSubmitting}
+            disabled={submitting}
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Leave Details */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold text-blue-900 mb-2">Current Leave Details</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-blue-700">Employee:</span>
-                <span className="font-medium text-blue-900 ml-2">
-                  {leave?.employees?.full_name}
-                </span>
-              </div>
-              <div>
-                <span className="text-blue-700">Leave Type:</span>
-                <span className="font-medium text-blue-900 ml-2">
-                  {leave?.leave_plans?.name}
-                </span>
-              </div>
-              <div>
-                <span className="text-blue-700">Leave Period:</span>
-                <span className="font-medium text-blue-900 ml-2">
-                  {new Date(leave?.start_date).toLocaleDateString()} - {new Date(leave?.end_date).toLocaleDateString()}
-                </span>
-              </div>
-              <div>
-                <span className="text-blue-700">Total Days:</span>
-                <span className="font-medium text-blue-900 ml-2">
-                  {leave?.duration_days} working days
-                </span>
-              </div>
+        {/* Leave Details */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-blue-700">Leave Type:</span>
+              <span className="font-medium text-blue-900 ml-2">
+                {leave.leave_plans?.name}
+              </span>
+            </div>
+            <div>
+              <span className="text-blue-700">Original Period:</span>
+              <span className="font-medium text-blue-900 ml-2">
+                {new Date(leave.start_date).toLocaleDateString()} - {new Date(leave.end_date).toLocaleDateString()}
+              </span>
             </div>
           </div>
+        </div>
 
+        <form onSubmit={onSubmit} className="space-y-4">
           {/* New Resumption Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              New Resumption Date <span className="text-red-500">*</span>
-            </label>
+          <label className="block text-sm">
+            <span className="font-bold text-gray-500 text-xs uppercase">
+              New Resumption Date
+            </span>
             <input
               type="date"
-              value={resumptionDate}
-              onChange={(e) => setResumptionDate(e.target.value)}
-              min={leave?.start_date}
-              max={leave?.end_date}
+              value={newDate}
+              onChange={(e) => onChangeDate(e.target.value)}
+              min={leave.start_date}
+              max={leave.end_date}
               required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              className="w-full mt-1 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none"
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Select the date the employee should return to work
-            </p>
-          </div>
+          </label>
 
-          {/* Calculation Display */}
+          {/* ✅ NEW: Calculation Display */}
           {calculation && (
-            <div className="bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200 rounded-xl p-5">
-              <h3 className="font-semibold text-green-900 mb-4 flex items-center gap-2">
-                <AlertCircle size={20} />
-                Calculation Summary
-              </h3>
+            <div className="bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertCircle size={16} className="text-green-700" />
+                <h3 className="font-semibold text-green-900 text-sm">Calculation</h3>
+              </div>
               
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-3 mb-3">
                 {/* Days Used */}
-                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                   <p className="text-xs text-gray-600 mb-1">Days Used</p>
-                  <p className="text-3xl font-bold text-orange-600">
+                  <p className="text-2xl font-bold text-orange-600">
                     {calculation.daysUsed}
                   </p>
                 </div>
 
                 {/* Days Refunded */}
-                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                   <p className="text-xs text-gray-600 mb-1">Days Refunded</p>
-                  <p className="text-3xl font-bold text-green-600">
+                  <p className="text-2xl font-bold text-green-600">
                     +{calculation.daysToRefund}
                   </p>
                 </div>
 
                 {/* Original Total */}
-                <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                   <p className="text-xs text-gray-600 mb-1">Original Total</p>
-                  <p className="text-3xl font-bold text-gray-700">
+                  <p className="text-2xl font-bold text-gray-700">
                     {calculation.originalTotal}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-2 text-sm">
-                <p className="text-gray-700">
+              <div className="space-y-1 text-xs text-gray-700">
+                <p>
                   • Employee used <span className="font-semibold text-orange-600">{calculation.daysUsed} days</span> of leave
                 </p>
-                <p className="text-gray-700">
+                <p>
                   • <span className="font-semibold text-green-600">{calculation.daysToRefund} days</span> will be refunded to their balance
                 </p>
-                <p className="text-gray-700">
-                  • If employee doesn't return on <span className="font-semibold">{new Date(resumptionDate).toLocaleDateString()}</span>, they'll be marked <span className="font-semibold text-red-600">absent</span>
+                <p>
+                  • If employee doesn't return on <span className="font-semibold">{new Date(newDate).toLocaleDateString()}</span>, they'll be marked <span className="font-semibold text-red-600">absent</span>
                 </p>
               </div>
             </div>
           )}
 
-          {/* Recall Reason */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reason for Recall <span className="text-red-500">*</span>
-            </label>
+          {/* Reason */}
+          <label className="block text-sm">
+            <span className="font-bold text-gray-500 text-xs uppercase">
+              Reason for Recall
+            </span>
             <textarea
+              rows="3"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => onChangeReason(e.target.value)}
               required
-              rows={4}
-              placeholder="Explain why the employee is being recalled (e.g., urgent project requirement, operational needs)..."
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+              className="w-full mt-1 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none resize-none"
+              placeholder="e.g. Emergency project meeting..."
             />
-          </div>
+          </label>
 
           {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t border-gray-200">
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={submitting || !newDate || !reason.trim()}
+              className="flex-1 bg-orange-600 text-white font-bold py-2.5 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg shadow-orange-100"
+            >
+              {submitting ? "Processing..." : "Confirm Recall"}
+            </button>
             <button
               type="button"
               onClick={onClose}
-              disabled={isSubmitting}
-              className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={submitting}
+              className="flex-1 bg-gray-100 text-gray-600 font-bold py-2.5 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition"
             >
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg font-medium hover:from-orange-600 hover:to-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
-            >
-              {isSubmitting ? "Processing..." : "Confirm Recall"}
             </button>
           </div>
         </form>
