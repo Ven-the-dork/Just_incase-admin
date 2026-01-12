@@ -99,7 +99,7 @@ export default function TimeTracking() {
             resumption_date,
             leave_plans!inner(is_paid)
           `)
-          .in("status", ["approved", "recalled"])  // ✅ Include recalled leaves
+          .in("status", ["approved", "recalled"])
           .lte("start_date", selectedDate)
           .gte("end_date", selectedDate);
         if (leaveError) throw leaveError;
@@ -138,14 +138,27 @@ export default function TimeTracking() {
             };
           }
 
-          // ✅ NEW: Handle recalled leaves
+          // ✅ NEW: Handle leaves (approved or recalled)
           if (leave) {
             const isRecalled = leave.status === "recalled";
             const resumptionDate = leave.resumption_date;
 
-            // If recalled and selected date is on/after resumption date
-            if (isRecalled && resumptionDate && selectedDate >= resumptionDate) {
-              // Employee should be back at work - treat as normal working day
+            // ✅ KEY FIX: Check if selected date is BEFORE resumption (if recalled)
+            const shouldBeOnLeave = !isRecalled || !resumptionDate || selectedDate < resumptionDate;
+
+            if (shouldBeOnLeave) {
+              // Employee is still on leave
+              const isPaid = leave.leave_plans?.is_paid ?? true;
+              status = isPaid ? "On Paid Leave" : "On Unpaid Leave";
+              clockIn = isPaid ? "Paid Leave" : "Unpaid Leave";
+
+              if (isPaid) {
+                onPaidLeaveCount++;
+              } else {
+                onUnpaidLeaveCount++;
+              }
+            } else {
+              // Employee was recalled and should be back at work
               if (log?.clock_in_at) {
                 // Has clocked in - calculate as normal
                 const start = new Date(log.clock_in_at);
@@ -184,17 +197,6 @@ export default function TimeTracking() {
                 status = "Absent";
                 clockIn = "Should Resume";
                 absentCount++;
-              }
-            } else {
-              // Still on leave (not recalled OR before resumption date)
-              const isPaid = leave.leave_plans?.is_paid ?? true;
-              status = isPaid ? "On Paid Leave" : "On Unpaid Leave";
-              clockIn = isPaid ? "Paid Leave" : "Unpaid Leave";
-
-              if (isPaid) {
-                onPaidLeaveCount++;
-              } else {
-                onUnpaidLeaveCount++;
               }
             }
           } else if (log?.clock_in_at) {
