@@ -434,26 +434,55 @@ export default function LeaveManagement() {
       });
 
       // ✅ Refund balance
-      if (daysToRefund > 0) {
-        const { data: currentBalance, error: fetchError } = await supabase
-          .from('employee_leave_balances')
-          .select('remaining_days')
-          .eq('employee_id', selectedRecallLeave.employee_id)
-          .eq('leave_plan_id', selectedRecallLeave.leave_plan_id)
-          .single();
+      // ✅ Refund balance with detailed error logging
+if (daysToRefund > 0) {
+  try {
+    console.log("🔍 Attempting balance refund...");
+    console.log("Employee ID:", selectedRecallLeave.employee_id);
+    console.log("Leave Plan ID:", selectedRecallLeave.leave_plan_id);
+    
+    const { data: currentBalance, error: fetchError } = await supabase
+      .from('employee_leave_balances')
+      .select('remaining_days, id')
+      .eq('employee_id', selectedRecallLeave.employee_id)
+      .eq('leave_plan_id', selectedRecallLeave.leave_plan_id)
+      .single();
 
-        if (!fetchError && currentBalance) {
-          const newBalance = currentBalance.remaining_days + daysToRefund;
-          
-          await supabase
-            .from('employee_leave_balances')
-            .update({ remaining_days: newBalance })
-            .eq('employee_id', selectedRecallLeave.employee_id)
-            .eq('leave_plan_id', selectedRecallLeave.leave_plan_id);
+    console.log("📊 Current balance data:", currentBalance);
+    console.log("❌ Fetch error:", fetchError);
 
-          console.log(`✅ Refunded ${daysToRefund} days. New balance: ${newBalance}`);
-        }
+    if (fetchError) {
+      console.error("Balance fetch failed:", fetchError);
+      throw new Error(`Cannot find balance: ${fetchError.message}`);
+    }
+
+    if (currentBalance) {
+      const newBalance = currentBalance.remaining_days + daysToRefund;
+      
+      console.log(`💰 Updating balance from ${currentBalance.remaining_days} to ${newBalance}`);
+      
+      const { data: updateData, error: updateError } = await supabase
+        .from('employee_leave_balances')
+        .update({ remaining_days: newBalance })
+        .eq('employee_id', selectedRecallLeave.employee_id)
+        .eq('leave_plan_id', selectedRecallLeave.leave_plan_id)
+        .select();
+
+      console.log("✅ Update result:", updateData);
+      console.log("❌ Update error:", updateError);
+
+      if (updateError) {
+        throw new Error(`Balance update failed: ${updateError.message}`);
       }
+
+      console.log(`✅ Refunded ${daysToRefund} days. New balance: ${newBalance}`);
+    }
+  } catch (balanceError) {
+    console.error("❌ Balance refund error:", balanceError);
+    alert(`Warning: Leave recalled but balance refund failed: ${balanceError.message}`);
+  }
+}
+
 
       await createLeaveNotification({
         employeeId: selectedRecallLeave.employee_id,
@@ -646,3 +675,4 @@ export default function LeaveManagement() {
     </div>
   );
 }
+
