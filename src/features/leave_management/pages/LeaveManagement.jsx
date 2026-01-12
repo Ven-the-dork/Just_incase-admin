@@ -24,7 +24,6 @@ import {
   updateLeaveStatus,
   getLeaveApplicationForNotification,
   insertNotification,
-  recallLeaveWithRefund, // ✅ ADDED
 } from "../../../services/leaveService";
 
 import LeaveHistoryPanel from "../components/LeaveHistoryPanel";
@@ -51,14 +50,12 @@ export default function LeaveManagement() {
   const [leavePlanName, setLeavePlanName] = useState("");
   const [durationDays, setDurationDays] = useState("");
   const [allowRecall, setAllowRecall] = useState("");
-  const [isPaid, setIsPaid] = useState("");
 
   // Edit plan
   const [editingPlan, setEditingPlan] = useState(null);
   const [editName, setEditName] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editAllowRecall, setEditAllowRecall] = useState("");
-  const [editIsPaid, setEditIsPaid] = useState("");
   const [openDropdown, setOpenDropdown] = useState(null);
 
   // Recall modal
@@ -169,10 +166,12 @@ export default function LeaveManagement() {
     loadOngoing();
   }, []);
 
+  // Actions: create, edit, delete, approve/reject, recall
+
   async function handleCreateLeaveSetting(e) {
     e.preventDefault();
-    if (!leavePlanName || !durationDays || !isPaid) {
-      alert("Please fill in all fields including Paid Leave option");
+    if (!leavePlanName || !durationDays) {
+      alert("Please fill in Leave Plan Name and Duration");
       return;
     }
 
@@ -181,41 +180,41 @@ export default function LeaveManagement() {
       duration_days: Number(durationDays),
       is_active: true,
       allow_recall: allowRecall === "Yes",
-      is_paid: isPaid === "Yes",
     };
 
     try {
       const data = await createLeavePlan(payload);
       setLeavePlans((prev) => [...prev, data]);
-
+      
+      // Show success toast instead of alert
       setSuccessMessage(`Leave plan "${leavePlanName}" created successfully!`);
       setShowSuccessToast(true);
-
-      // Clear form
+      
+      // Clear form after showing success message
       setLeavePlanName("");
       setDurationDays("");
       setAllowRecall("");
-      setIsPaid("");
     } catch (error) {
       console.error(error);
       alert("Failed to create leave plan");
     }
   }
 
-  // Open approve modal
+  // NEW: Open approve modal
   function handleApproveLeaveClick(application) {
     setSelectedApplication(application);
     setShowApproveModal(true);
   }
 
-  // Confirm approve
+  // NEW: Confirm approve
   async function confirmApproveLeave() {
     if (!selectedApplication) return;
 
     setIsApprovingLeave(true);
     try {
+      // Use the application ID directly
       const applicationId = selectedApplication.id;
-
+      
       if (!applicationId) {
         throw new Error("Application ID is missing");
       }
@@ -244,7 +243,7 @@ export default function LeaveManagement() {
 
       setShowApproveModal(false);
       setSelectedApplication(null);
-
+      
       setSuccessMessage("Leave application approved successfully!");
       setShowSuccessToast(true);
     } catch (error) {
@@ -255,20 +254,20 @@ export default function LeaveManagement() {
     }
   }
 
-  // Open reject modal
+  // NEW: Open reject modal
   function handleRejectLeaveClick(application) {
     setSelectedApplication(application);
     setShowRejectModal(true);
   }
 
-  // Confirm reject
+  // NEW: Confirm reject
   async function confirmRejectLeave() {
     if (!selectedApplication) return;
 
     setIsRejectingLeave(true);
     try {
       const applicationId = selectedApplication.id;
-
+      
       if (!applicationId) {
         throw new Error("Application ID is missing");
       }
@@ -297,7 +296,7 @@ export default function LeaveManagement() {
 
       setShowRejectModal(false);
       setSelectedApplication(null);
-
+      
       setSuccessMessage("Leave application rejected successfully!");
       setShowSuccessToast(true);
     } catch (error) {
@@ -313,7 +312,6 @@ export default function LeaveManagement() {
     setEditName(plan.name);
     setEditDuration(plan.duration_days);
     setEditAllowRecall(plan.allow_recall ? "Yes" : "No");
-    setEditIsPaid(plan.is_paid ? "Yes" : "No");
     setOpenDropdown(null);
   }
 
@@ -324,7 +322,6 @@ export default function LeaveManagement() {
         name: editName,
         duration_days: Number(editDuration),
         allow_recall: editAllowRecall === "Yes",
-        is_paid: editIsPaid === "Yes",
       });
 
       setLeavePlans((prev) =>
@@ -335,17 +332,13 @@ export default function LeaveManagement() {
                 name: editName,
                 duration_days: Number(editDuration),
                 allow_recall: editAllowRecall === "Yes",
-                is_paid: editIsPaid === "Yes",
               }
             : p
         )
       );
       setEditingPlan(null);
-      setSuccessMessage("Leave plan updated successfully!");
-      setShowSuccessToast(true);
     } catch (error) {
       console.error(error);
-      alert("Failed to update leave plan");
     }
   }
 
@@ -366,7 +359,8 @@ export default function LeaveManagement() {
       setLeavePlans((prev) => prev.filter((p) => p.id !== planToDelete.id));
       setShowDeleteModal(false);
       setPlanToDelete(null);
-
+      
+      // Show success toast for deletion too
       setSuccessMessage(`Leave plan "${planToDelete.name}" deleted successfully!`);
       setShowSuccessToast(true);
     } catch (error) {
@@ -390,44 +384,41 @@ export default function LeaveManagement() {
     setShowRecallModal(true);
   }
 
-  // ✅ UPDATED: Use recallLeaveWithRefund function
+  // ✅ UPDATED: Now saves resumption_date
   async function handleSubmitRecall(e) {
     e.preventDefault();
-    if (!recallNewResumptionDate || !recallReasonText.trim()) {
-      alert("Please fill in all fields");
+    if (!recallNewResumptionDate) {
+      alert("Select date");
       return;
     }
 
     setSubmittingRecall(true);
     try {
-      // ✅ NEW: Call the refund function
-      const result = await recallLeaveWithRefund(
-        selectedRecallLeave.id,
-        recallNewResumptionDate,
-        recallReasonText,
-        currentUser?.uid
-      );
+      await updateLeaveStatus(selectedRecallLeave.id, {
+        status: "recalled",
+        reviewed_at: new Date().toISOString(),
+        resumption_date: recallNewResumptionDate,  // ✅ ADDED THIS!
+      });
 
-      // Remove from ongoing leaves list
+      await createLeaveNotification({
+        employeeId: selectedRecallLeave.employee_id,
+        leaveApplicationId: selectedRecallLeave.id,
+        type: "leave_recalled",
+        title: "Leave recalled",
+        message: `Please resume on ${recallNewResumptionDate}.`,
+      });
+
       setOngoingLeaves((prev) =>
         prev.filter((l) => l.id !== selectedRecallLeave.id)
       );
-
-      // Update applications list if visible
-      setLeaveApplications((prev) =>
-        prev.map((app) =>
-          app.id === selectedRecallLeave.id
-            ? { ...app, status: "recalled" }
-            : app
-        )
-      );
-
       setShowRecallModal(false);
-      setSuccessMessage(result.message || "Leave recalled successfully!");
+      
+      // ✅ ADDED SUCCESS MESSAGE
+      setSuccessMessage("Leave recalled successfully!");
       setShowSuccessToast(true);
     } catch (error) {
       console.error(error);
-      alert(`Failed to recall leave: ${error.message}`);
+      alert("Failed to recall leave");
     } finally {
       setSubmittingRecall(false);
     }
@@ -448,7 +439,11 @@ export default function LeaveManagement() {
         onNavigate={(path) => navigate(path)}
       />
 
-      <main className={`flex-1 flex flex-col transition-all duration-300 ${isOpen ? "lg:ml-0" : ""}`}>
+      <main
+        className={`flex-1 flex flex-col transition-all duration-300 ${
+          isOpen ? "lg:ml-0" : ""
+        }`}
+      >
         {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -526,17 +521,14 @@ export default function LeaveManagement() {
               leavePlanName={leavePlanName}
               durationDays={durationDays}
               allowRecall={allowRecall}
-              isPaid={isPaid}
               editingPlan={editingPlan}
               editName={editName}
               editDuration={editDuration}
               editAllowRecall={editAllowRecall}
-              editIsPaid={editIsPaid}
               openDropdown={openDropdown}
               onChangeLeavePlanName={setLeavePlanName}
               onChangeDurationDays={setDurationDays}
               onChangeAllowRecall={setAllowRecall}
-              onChangeIsPaid={setIsPaid}
               onCreate={handleCreateLeaveSetting}
               onStartEdit={handleStartEdit}
               onSaveEdit={handleSaveEdit}
@@ -544,7 +536,6 @@ export default function LeaveManagement() {
               onChangeEditName={setEditName}
               onChangeEditDuration={setEditDuration}
               onChangeEditAllowRecall={setEditAllowRecall}
-              onChangeEditIsPaid={setEditIsPaid}
               onDeletePlan={handleDeleteLeavePlan}
               setOpenDropdown={setOpenDropdown}
             />
@@ -555,7 +546,7 @@ export default function LeaveManagement() {
             <LeaveRecallPanel
               ongoingLeaves={ongoingLeaves}
               loading={loadingOngoing}
-              onRecall={handleOpenRecallModal}
+              onOpenRecall={handleOpenRecallModal}
             />
           )}
         </div>
@@ -585,7 +576,7 @@ export default function LeaveManagement() {
         {/* Approve Modal */}
         <ApproveLeaveModal
           isOpen={showApproveModal}
-          employeeName={selectedApplication?.employees?.full_name || "Employee"}
+          employeeName={selectedApplication?.employees?.name || "Employee"}
           leaveType={selectedApplication?.leave_plans?.name || "Leave"}
           onConfirm={confirmApproveLeave}
           onCancel={() => setShowApproveModal(false)}
@@ -595,7 +586,7 @@ export default function LeaveManagement() {
         {/* Reject Modal */}
         <RejectLeaveModal
           isOpen={showRejectModal}
-          employeeName={selectedApplication?.employees?.full_name || "Employee"}
+          employeeName={selectedApplication?.employees?.name || "Employee"}
           leaveType={selectedApplication?.leave_plans?.name || "Leave"}
           onConfirm={confirmRejectLeave}
           onCancel={() => setShowRejectModal(false)}
