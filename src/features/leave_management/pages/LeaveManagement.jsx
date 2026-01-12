@@ -4,6 +4,7 @@ import { Menu, Settings, Calendar, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../../../firebaseConfig";
+import { supabase } from "../../../services/supabaseClient"; // ✅ ADD THIS
 
 import AdminBell from "../../../components/AdminBell";
 import AdminSidebar from "../components/Leavedashvar";
@@ -30,6 +31,27 @@ import LeaveHistoryPanel from "../components/LeaveHistoryPanel";
 import LeaveSettingsPanel from "../components/LeaveSettingsPanel";
 import LeaveRecallPanel from "../components/LeaveRecallPanel";
 import RecallModal from "../components/Recallmodal";
+
+// ✅ Helper function: Calculate working days (exclude Sundays)
+function calculateWorkingDays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  if (end < start) return 0;
+
+  let count = 0;
+  const current = new Date(start);
+  
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0) count++; // Exclude Sunday only
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return count;
+}
 
 export default function LeaveManagement() {
   const navigate = useNavigate();
@@ -186,11 +208,9 @@ export default function LeaveManagement() {
       const data = await createLeavePlan(payload);
       setLeavePlans((prev) => [...prev, data]);
       
-      // Show success toast instead of alert
       setSuccessMessage(`Leave plan "${leavePlanName}" created successfully!`);
       setShowSuccessToast(true);
       
-      // Clear form after showing success message
       setLeavePlanName("");
       setDurationDays("");
       setAllowRecall("");
@@ -200,19 +220,16 @@ export default function LeaveManagement() {
     }
   }
 
-  // NEW: Open approve modal
   function handleApproveLeaveClick(application) {
     setSelectedApplication(application);
     setShowApproveModal(true);
   }
 
-  // NEW: Confirm approve
   async function confirmApproveLeave() {
     if (!selectedApplication) return;
 
     setIsApprovingLeave(true);
     try {
-      // Use the application ID directly
       const applicationId = selectedApplication.id;
       
       if (!applicationId) {
@@ -254,13 +271,11 @@ export default function LeaveManagement() {
     }
   }
 
-  // NEW: Open reject modal
   function handleRejectLeaveClick(application) {
     setSelectedApplication(application);
     setShowRejectModal(true);
   }
 
-  // NEW: Confirm reject
   async function confirmRejectLeave() {
     if (!selectedApplication) return;
 
@@ -342,14 +357,12 @@ export default function LeaveManagement() {
     }
   }
 
-  // Open delete modal
   function handleDeleteLeavePlan(plan) {
     setPlanToDelete(plan);
     setShowDeleteModal(true);
     setOpenDropdown(null);
   }
 
-  // Confirm delete
   async function confirmDeletePlan() {
     if (!planToDelete) return;
 
@@ -360,7 +373,6 @@ export default function LeaveManagement() {
       setShowDeleteModal(false);
       setPlanToDelete(null);
       
-      // Show success toast for deletion too
       setSuccessMessage(`Leave plan "${planToDelete.name}" deleted successfully!`);
       setShowSuccessToast(true);
     } catch (error) {
@@ -371,7 +383,6 @@ export default function LeaveManagement() {
     }
   }
 
-  // Cancel delete
   function cancelDeletePlan() {
     setShowDeleteModal(false);
     setPlanToDelete(null);
@@ -384,7 +395,7 @@ export default function LeaveManagement() {
     setShowRecallModal(true);
   }
 
-  // ✅ UPDATED: Now saves resumption_date
+  // ✅ COMPLETE RECALL WITH BALANCE REFUND
   async function handleSubmitRecall(e) {
     e.preventDefault();
     if (!recallNewResumptionDate) {
@@ -394,18 +405,62 @@ export default function LeaveManagement() {
 
     setSubmittingRecall(true);
     try {
+      // ✅ Calculate days
+      const startDate = selectedRecallLeave.start_date;
+      const endDate = selectedRecallLeave.end_date;
+      
+      const resumeDate = new Date(recallNewResumptionDate);
+      const lastLeaveDate = new Date(resumeDate);
+      lastLeaveDate.setDate(lastLeaveDate.getDate() - 1);
+      const lastLeaveDateStr = lastLeaveDate.toISOString().split('T')[0];
+
+      const daysUsed = calculateWorkingDays(startDate, lastLeaveDateStr);
+      const daysToRefund = calculateWorkingDays(recallNewResumptionDate, endDate);
+
+      console.log("📊 Recall Calculation:", {
+        daysUsed,
+        daysToRefund,
+        employeeId: selectedRecallLeave.employee_id
+      });
+
+      // ✅ Update leave application
       await updateLeaveStatus(selectedRecallLeave.id, {
         status: "recalled",
         reviewed_at: new Date().toISOString(),
-        resumption_date: recallNewResumptionDate,  // ✅ ADDED THIS!
+        resumption_date: recallNewResumptionDate,
+        days_used: daysUsed,
+        days_refunded: daysToRefund,
+        recall_reason: recallReasonText,
       });
+
+      // ✅ Refund balance
+      if (daysToRefund > 0) {
+        const { data: currentBalance, error: fetchError } = await supabase
+          .from('employee_leave_balances')
+          .select('remaining_days')
+          .eq('employee_id', selectedRecallLeave.employee_id)
+          .eq('leave_plan_id', selectedRecallLeave.leave_plan_id)
+          .single();
+
+        if (!fetchError && currentBalance) {
+          const newBalance = currentBalance.remaining_days + daysToRefund;
+          
+          await supabase
+            .from('employee_leave_balances')
+            .update({ remaining_days: newBalance })
+            .eq('employee_id', selectedRecallLeave.employee_id)
+            .eq('leave_plan_id', selectedRecallLeave.leave_plan_id);
+
+          console.log(`✅ Refunded ${daysToRefund} days. New balance: ${newBalance}`);
+        }
+      }
 
       await createLeaveNotification({
         employeeId: selectedRecallLeave.employee_id,
         leaveApplicationId: selectedRecallLeave.id,
         type: "leave_recalled",
         title: "Leave recalled",
-        message: `Please resume on ${recallNewResumptionDate}.`,
+        message: `Your leave has been recalled. Please resume on ${recallNewResumptionDate}. ${daysToRefund} days refunded to your balance.`,
       });
 
       setOngoingLeaves((prev) =>
@@ -413,12 +468,11 @@ export default function LeaveManagement() {
       );
       setShowRecallModal(false);
       
-      // ✅ ADDED SUCCESS MESSAGE
-      setSuccessMessage("Leave recalled successfully!");
+      setSuccessMessage(`Leave recalled! ${daysToRefund} days refunded.`);
       setShowSuccessToast(true);
     } catch (error) {
       console.error(error);
-      alert("Failed to recall leave");
+      alert("Failed to recall leave: " + error.message);
     } finally {
       setSubmittingRecall(false);
     }
@@ -431,7 +485,6 @@ export default function LeaveManagement() {
 
   return (
     <div className="min-h-screen flex bg-gray-50 font-sans text-gray-800">
-      {/* Sidebar */}
       <AdminSidebar
         isOpen={isOpen}
         currentUser={currentUser}
@@ -444,7 +497,6 @@ export default function LeaveManagement() {
           isOpen ? "lg:ml-0" : ""
         }`}
       >
-        {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -481,7 +533,6 @@ export default function LeaveManagement() {
         </header>
 
         <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
-          {/* Tabs */}
           <div className="flex justify-center mb-2">
             <div className="bg-white p-1 rounded-xl border border-gray-200 shadow-sm inline-flex">
               {["history", "recall", "settings"].map((tab) => (
@@ -504,7 +555,6 @@ export default function LeaveManagement() {
             </div>
           </div>
 
-          {/* History */}
           {activeTab === "history" && (
             <LeaveHistoryPanel
               applications={leaveApplications}
@@ -514,7 +564,6 @@ export default function LeaveManagement() {
             />
           )}
 
-          {/* Settings */}
           {activeTab === "settings" && (
             <LeaveSettingsPanel
               leavePlans={leavePlans}
@@ -541,7 +590,6 @@ export default function LeaveManagement() {
             />
           )}
 
-          {/* Recall */}
           {activeTab === "recall" && (
             <LeaveRecallPanel
               ongoingLeaves={ongoingLeaves}
@@ -551,7 +599,6 @@ export default function LeaveManagement() {
           )}
         </div>
 
-        {/* Recall Modal */}
         <RecallModal
           open={showRecallModal}
           leave={selectedRecallLeave}
@@ -564,7 +611,6 @@ export default function LeaveManagement() {
           onClose={() => setShowRecallModal(false)}
         />
 
-        {/* Delete Confirmation Modal */}
         <DeletePlanModal
           isOpen={showDeleteModal}
           planName={planToDelete?.name || ""}
@@ -573,7 +619,6 @@ export default function LeaveManagement() {
           isDeleting={isDeletingPlan}
         />
 
-        {/* Approve Modal */}
         <ApproveLeaveModal
           isOpen={showApproveModal}
           employeeName={selectedApplication?.employees?.name || "Employee"}
@@ -583,7 +628,6 @@ export default function LeaveManagement() {
           isApproving={isApprovingLeave}
         />
 
-        {/* Reject Modal */}
         <RejectLeaveModal
           isOpen={showRejectModal}
           employeeName={selectedApplication?.employees?.name || "Employee"}
@@ -593,7 +637,6 @@ export default function LeaveManagement() {
           isRejecting={isRejectingLeave}
         />
 
-        {/* Success Toast */}
         <SuccessToast
           isOpen={showSuccessToast}
           message={successMessage}
