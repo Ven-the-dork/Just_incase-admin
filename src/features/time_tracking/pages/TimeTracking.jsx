@@ -77,7 +77,6 @@ export default function TimeTracking() {
         const { data: employees, error: empError } = await supabase
           .from("employees")
           .select("id, full_name, department, role, is_disabled")
-          
           .eq("is_disabled", false)
           .neq("role", "admin");
 
@@ -89,6 +88,7 @@ export default function TimeTracking() {
           .eq("shift_date", selectedDate);
         if (logError) throw logError;
 
+        // ✅ UPDATED: Include status and resumption_date for recalled leaves
         const { data: leaves, error: leaveError } = await supabase
           .from("leave_applications")
           .select(`
@@ -96,9 +96,10 @@ export default function TimeTracking() {
             start_date, 
             end_date, 
             status,
+            resumption_date,
             leave_plans!inner(is_paid)
           `)
-          .eq("status", "approved")
+          .in("status", ["approved", "recalled"])  // ✅ Include recalled leaves
           .lte("start_date", selectedDate)
           .gte("end_date", selectedDate);
         if (leaveError) throw leaveError;
@@ -137,8 +138,67 @@ export default function TimeTracking() {
             };
           }
 
-          // Check clock-in FIRST (before leave)
-          if (log?.clock_in_at) {
+          // ✅ NEW: Handle recalled leaves
+          if (leave) {
+            const isRecalled = leave.status === "recalled";
+            const resumptionDate = leave.resumption_date;
+
+            // If recalled and selected date is on/after resumption date
+            if (isRecalled && resumptionDate && selectedDate >= resumptionDate) {
+              // Employee should be back at work - treat as normal working day
+              if (log?.clock_in_at) {
+                // Has clocked in - calculate as normal
+                const start = new Date(log.clock_in_at);
+                clockIn = start.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                  timeZone: TZ,
+                });
+
+                const startHour = parseInt(
+                  start.toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    hour12: false,
+                    timeZone: TZ,
+                  }),
+                  10
+                );
+                const startMin = parseInt(
+                  start.toLocaleTimeString("en-US", {
+                    minute: "2-digit",
+                    hour12: false,
+                    timeZone: TZ,
+                  }),
+                  10
+                );
+                const isLate =
+                  startHour > LATE_HOUR ||
+                  (startHour === LATE_HOUR && startMin > 0);
+
+                status = isLate ? "Late" : "Present";
+                if (isLate) lateCount++;
+                else presentCount++;
+              } else {
+                // Should have clocked in but didn't - ABSENT
+                status = "Absent";
+                clockIn = "Should Resume";
+                absentCount++;
+              }
+            } else {
+              // Still on leave (not recalled OR before resumption date)
+              const isPaid = leave.leave_plans?.is_paid ?? true;
+              status = isPaid ? "On Paid Leave" : "On Unpaid Leave";
+              clockIn = isPaid ? "Paid Leave" : "Unpaid Leave";
+
+              if (isPaid) {
+                onPaidLeaveCount++;
+              } else {
+                onUnpaidLeaveCount++;
+              }
+            }
+          } else if (log?.clock_in_at) {
+            // No leave, has clocked in
             const start = new Date(log.clock_in_at);
             clockIn = start.toLocaleTimeString("en-US", {
               hour: "2-digit",
@@ -170,19 +230,8 @@ export default function TimeTracking() {
             status = isLate ? "Late" : "Present";
             if (isLate) lateCount++;
             else presentCount++;
-          } else if (leave) {
-            // No clock-in, but has approved leave
-            const isPaid = leave.leave_plans?.is_paid ?? true;
-            status = isPaid ? "On Paid Leave" : "On Unpaid Leave";
-            clockIn = isPaid ? "Paid Leave" : "Unpaid Leave";
-
-            if (isPaid) {
-              onPaidLeaveCount++;
-            } else {
-              onUnpaidLeaveCount++;
-            }
           } else {
-            // No clock-in, no leave
+            // No clock-in, no leave - Absent
             status = "Absent";
             absentCount++;
           }
