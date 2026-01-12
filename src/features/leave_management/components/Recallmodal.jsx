@@ -36,7 +36,7 @@ export default function RecallModal({
 }) {
   const [calculation, setCalculation] = useState(null);
 
-  // ✅ NEW: Calculate days when resumption date changes
+  // ✅ Calculate days when resumption date changes
   useEffect(() => {
     if (!newDate || !leave) {
       setCalculation(null);
@@ -71,6 +71,14 @@ export default function RecallModal({
       originalTotal: leave.duration_days,
     });
   }, [newDate, leave]);
+
+  // ✅ FIXED: Proper form submit handler
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (onSubmit && typeof onSubmit === 'function') {
+      onSubmit(e);
+    }
+  };
 
   if (!open || !leave) return null;
 
@@ -119,7 +127,7 @@ export default function RecallModal({
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={handleFormSubmit} className="space-y-4">
           {/* New Resumption Date */}
           <label className="block text-sm">
             <span className="font-bold text-gray-500 text-xs uppercase">
@@ -136,7 +144,7 @@ export default function RecallModal({
             />
           </label>
 
-          {/* ✅ NEW: Calculation Display */}
+          {/* ✅ Calculation Display */}
           {calculation && (
             <div className="bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
