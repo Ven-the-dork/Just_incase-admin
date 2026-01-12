@@ -1,7 +1,7 @@
 // src/features/leave/components/LeaveRecallPanel.jsx
 import { Calendar, AlertCircle, DollarSign, Ban } from "lucide-react";
 
-export default function LeaveRecallPanel({ ongoingLeaves, loading, onRecall }) {
+export default function LeaveRecallPanel({ ongoingLeaves, loading, onOpenRecall }) {
   if (loading) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
@@ -78,7 +78,7 @@ export default function LeaveRecallPanel({ ongoingLeaves, loading, onRecall }) {
                   </div>
                 </td>
 
-                {/* ✅ UPDATED: Type & Reason with Paid/Unpaid Badge */}
+                {/* Type & Reason with Paid/Unpaid Badge */}
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="font-medium text-gray-800">
@@ -99,14 +99,11 @@ export default function LeaveRecallPanel({ ongoingLeaves, loading, onRecall }) {
                   </div>
                   <p className="text-sm text-gray-500">{leave.reason}</p>
                 </td>
+                
                 {/* Actions */}
                 <td className="py-3 px-4">
                   <button
-                    onClick={() => {
-                      console.log("🔘 Recall button clicked for leave:", leave);
-                      console.log("🔘 onRecall function:", onRecall);
-                      onRecall(leave);
-                    }}
+                    onClick={() => onOpenRecall(leave)}
                     className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
                   >
                     Recall Leave
