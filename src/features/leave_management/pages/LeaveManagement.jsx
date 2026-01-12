@@ -24,6 +24,7 @@ import {
   updateLeaveStatus,
   getLeaveApplicationForNotification,
   insertNotification,
+  recallLeaveWithRefund, // ✅ ADDED
 } from "../../../services/leaveService";
 
 import LeaveHistoryPanel from "../components/LeaveHistoryPanel";
@@ -50,14 +51,14 @@ export default function LeaveManagement() {
   const [leavePlanName, setLeavePlanName] = useState("");
   const [durationDays, setDurationDays] = useState("");
   const [allowRecall, setAllowRecall] = useState("");
-  const [isPaid, setIsPaid] = useState(""); // ✅ ADDED
+  const [isPaid, setIsPaid] = useState("");
 
   // Edit plan
   const [editingPlan, setEditingPlan] = useState(null);
   const [editName, setEditName] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editAllowRecall, setEditAllowRecall] = useState("");
-  const [editIsPaid, setEditIsPaid] = useState(""); // ✅ ADDED
+  const [editIsPaid, setEditIsPaid] = useState("");
   const [openDropdown, setOpenDropdown] = useState(null);
 
   // Recall modal
@@ -168,7 +169,6 @@ export default function LeaveManagement() {
     loadOngoing();
   }, []);
 
-  // ✅ UPDATED: Create with isPaid
   async function handleCreateLeaveSetting(e) {
     e.preventDefault();
     if (!leavePlanName || !durationDays || !isPaid) {
@@ -181,7 +181,7 @@ export default function LeaveManagement() {
       duration_days: Number(durationDays),
       is_active: true,
       allow_recall: allowRecall === "Yes",
-      is_paid: isPaid === "Yes", // ✅ ADDED
+      is_paid: isPaid === "Yes",
     };
 
     try {
@@ -195,7 +195,7 @@ export default function LeaveManagement() {
       setLeavePlanName("");
       setDurationDays("");
       setAllowRecall("");
-      setIsPaid(""); // ✅ ADDED
+      setIsPaid("");
     } catch (error) {
       console.error(error);
       alert("Failed to create leave plan");
@@ -308,17 +308,15 @@ export default function LeaveManagement() {
     }
   }
 
-  // ✅ UPDATED: Start edit with isPaid
   function handleStartEdit(plan) {
     setEditingPlan(plan);
     setEditName(plan.name);
     setEditDuration(plan.duration_days);
     setEditAllowRecall(plan.allow_recall ? "Yes" : "No");
-    setEditIsPaid(plan.is_paid ? "Yes" : "No"); // ✅ ADDED
+    setEditIsPaid(plan.is_paid ? "Yes" : "No");
     setOpenDropdown(null);
   }
 
-  // ✅ UPDATED: Save edit with isPaid
   async function handleSaveEdit(e) {
     e.preventDefault();
     try {
@@ -326,7 +324,7 @@ export default function LeaveManagement() {
         name: editName,
         duration_days: Number(editDuration),
         allow_recall: editAllowRecall === "Yes",
-        is_paid: editIsPaid === "Yes", // ✅ ADDED
+        is_paid: editIsPaid === "Yes",
       });
 
       setLeavePlans((prev) =>
@@ -337,7 +335,7 @@ export default function LeaveManagement() {
                 name: editName,
                 duration_days: Number(editDuration),
                 allow_recall: editAllowRecall === "Yes",
-                is_paid: editIsPaid === "Yes", // ✅ ADDED
+                is_paid: editIsPaid === "Yes",
               }
             : p
         )
@@ -392,37 +390,44 @@ export default function LeaveManagement() {
     setShowRecallModal(true);
   }
 
+  // ✅ UPDATED: Use recallLeaveWithRefund function
   async function handleSubmitRecall(e) {
     e.preventDefault();
-    if (!recallNewResumptionDate) {
-      alert("Select date");
+    if (!recallNewResumptionDate || !recallReasonText.trim()) {
+      alert("Please fill in all fields");
       return;
     }
 
     setSubmittingRecall(true);
     try {
-      await updateLeaveStatus(selectedRecallLeave.id, {
-        status: "recalled",
-        reviewed_at: new Date().toISOString(),
-      });
+      // ✅ NEW: Call the refund function
+      const result = await recallLeaveWithRefund(
+        selectedRecallLeave.id,
+        recallNewResumptionDate,
+        recallReasonText,
+        currentUser?.uid
+      );
 
-      await createLeaveNotification({
-        employeeId: selectedRecallLeave.employee_id,
-        leaveApplicationId: selectedRecallLeave.id,
-        type: "leave_recalled",
-        title: "Leave recalled",
-        message: `Please resume on ${recallNewResumptionDate}.`,
-      });
-
+      // Remove from ongoing leaves list
       setOngoingLeaves((prev) =>
         prev.filter((l) => l.id !== selectedRecallLeave.id)
       );
+
+      // Update applications list if visible
+      setLeaveApplications((prev) =>
+        prev.map((app) =>
+          app.id === selectedRecallLeave.id
+            ? { ...app, status: "recalled" }
+            : app
+        )
+      );
+
       setShowRecallModal(false);
-      setSuccessMessage("Leave recalled successfully!");
+      setSuccessMessage(result.message || "Leave recalled successfully!");
       setShowSuccessToast(true);
     } catch (error) {
       console.error(error);
-      alert("Failed to recall leave");
+      alert(`Failed to recall leave: ${error.message}`);
     } finally {
       setSubmittingRecall(false);
     }
@@ -521,17 +526,17 @@ export default function LeaveManagement() {
               leavePlanName={leavePlanName}
               durationDays={durationDays}
               allowRecall={allowRecall}
-              isPaid={isPaid} // ✅ ADDED
+              isPaid={isPaid}
               editingPlan={editingPlan}
               editName={editName}
               editDuration={editDuration}
               editAllowRecall={editAllowRecall}
-              editIsPaid={editIsPaid} // ✅ ADDED
+              editIsPaid={editIsPaid}
               openDropdown={openDropdown}
               onChangeLeavePlanName={setLeavePlanName}
               onChangeDurationDays={setDurationDays}
               onChangeAllowRecall={setAllowRecall}
-              onChangeIsPaid={setIsPaid} // ✅ ADDED
+              onChangeIsPaid={setIsPaid}
               onCreate={handleCreateLeaveSetting}
               onStartEdit={handleStartEdit}
               onSaveEdit={handleSaveEdit}
@@ -539,7 +544,7 @@ export default function LeaveManagement() {
               onChangeEditName={setEditName}
               onChangeEditDuration={setEditDuration}
               onChangeEditAllowRecall={setEditAllowRecall}
-              onChangeEditIsPaid={setEditIsPaid} // ✅ ADDED
+              onChangeEditIsPaid={setEditIsPaid}
               onDeletePlan={handleDeleteLeavePlan}
               setOpenDropdown={setOpenDropdown}
             />
@@ -550,12 +555,12 @@ export default function LeaveManagement() {
             <LeaveRecallPanel
               ongoingLeaves={ongoingLeaves}
               loading={loadingOngoing}
-              onRecall={handleOpenRecallModal} // ✅ FIXED: Changed from onOpenRecall to onRecall
+              onRecall={handleOpenRecallModal}
             />
           )}
         </div>
 
-        {/* ✅ FIXED: Recall Modal Props */}
+        {/* Recall Modal */}
         <RecallModal
           open={showRecallModal}
           leave={selectedRecallLeave}
